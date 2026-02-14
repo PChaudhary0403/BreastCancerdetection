@@ -1,0 +1,188 @@
+/**
+ * ML Service Client for Next.js Platform
+ * 
+ * Connects the web platform to the Python ML inference service
+ * 
+ * IMPORTANT: AI outputs are ADVISORY ONLY
+ * All predictions must be reviewed by qualified doctors
+ */
+
+import { readFromStorage } from "./storage"
+
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000"
+const ML_SERVICE_API_KEY = process.env.ML_SERVICE_API_KEY || "dev-key"
+
+export interface MLInferenceResult {
+    inference_id: string
+    case_id: string | null
+    timestamp: string
+    risk_tier: "LOW" | "MODERATE" | "ELEVATED" | "HIGH"
+    birads_prediction: number
+    birads_probabilities: Record<string, number>
+    confidence: number
+    malignancy_probability: number
+    lesion_probability: number
+    attention_map_reference: string | null
+    model_version: string
+    advisory_notice: string
+}
+
+export interface MLServiceHealth {
+    status: string
+    model_loaded: boolean
+    model_version: string | null
+    device: string
+}
+
+/**
+ * Check if ML service is healthy
+ */
+export async function checkMLServiceHealth(): Promise<MLServiceHealth> {
+    try {
+        const response = await fetch(`${ML_SERVICE_URL}/health`, {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        })
+
+        if (!response.ok) {
+            throw new Error(`ML Service unhealthy: ${response.status}`)
+        }
+
+        return await response.json()
+    } catch (error) {
+        console.error("ML Service health check failed:", error)
+        return {
+            status: "unavailable",
+            model_loaded: false,
+            model_version: null,
+            device: "unknown",
+        }
+    }
+}
+
+/**
+ * Run inference on a mammogram image
+ * 
+ * IMPORTANT: Results are ADVISORY ONLY and must be reviewed by doctors
+ * 
+ * @param imageStorageRef - Storage reference for the image
+ * @param caseId - Optional case ID for tracking
+ */
+export async function runInference(
+    imageStorageRef: string,
+    caseId?: string
+): Promise<MLInferenceResult | null> {
+    try {
+        // Read image from secure storage
+        const imageBuffer = await readFromStorage(imageStorageRef)
+
+        // Create form data
+        const formData = new FormData()
+        formData.append("file", new Blob([imageBuffer]), "image.dcm")
+        if (caseId) {
+            formData.append("case_id", caseId)
+        }
+
+        // Call ML service
+        const response = await fetch(`${ML_SERVICE_URL}/infer`, {
+            method: "POST",
+            headers: {
+                "X-API-Key": ML_SERVICE_API_KEY,
+            },
+            body: formData,
+        })
+
+        if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.detail || `Inference failed: ${response.status}`)
+        }
+
+        return await response.json()
+    } catch (error) {
+        console.error("ML inference failed:", error)
+        return null
+    }
+}
+
+/**
+ * Run inference on multiple images (e.g., all images in a case)
+ * Returns aggregated risk assessment
+ */
+export async function runBatchInference(
+    imageStorageRefs: string[],
+    caseId: string
+): Promise<{
+    inferences: MLInferenceResult[]
+    aggregatedRiskTier: "LOW" | "MODERATE" | "ELEVATED" | "HIGH"
+    highestBirads: number
+    averageConfidence: number
+} | null> {
+    try {
+        const inferences: MLInferenceResult[] = []
+
+        // Run inference on each image
+        for (const ref of imageStorageRefs) {
+            const result = await runInference(ref, caseId)
+            if (result) {
+                inferences.push(result)
+            }
+        }
+
+        if (inferences.length === 0) {
+            return null
+        }
+
+        // Aggregate results (use highest risk for safety)
+        const riskTierOrder: Record<string, number> = {
+            LOW: 0,
+            MODERATE: 1,
+            ELEVATED: 2,
+            HIGH: 3,
+        }
+
+        const aggregatedRiskTier = inferences.reduce((highest, current) => {
+            return riskTierOrder[current.risk_tier] > riskTierOrder[highest]
+                ? current.risk_tier
+                : highest
+        }, "LOW") as "LOW" | "MODERATE" | "ELEVATED" | "HIGH"
+
+        const highestBirads = Math.max(...inferences.map((i) => i.birads_prediction))
+        const averageConfidence =
+            inferences.reduce((sum, i) => sum + i.confidence, 0) / inferences.length
+
+        return {
+            inferences,
+            aggregatedRiskTier,
+            highestBirads,
+            averageConfidence,
+        }
+    } catch (error) {
+        console.error("Batch inference failed:", error)
+        return null
+    }
+}
+
+/**
+ * Get model information
+ */
+export async function getModelInfo(): Promise<Record<string, unknown> | null> {
+    try {
+        const response = await fetch(`${ML_SERVICE_URL}/model-info`, {
+            method: "GET",
+            headers: {
+                "X-API-Key": ML_SERVICE_API_KEY,
+            },
+        })
+
+        if (!response.ok) {
+            throw new Error(`Failed to get model info: ${response.status}`)
+        }
+
+        return await response.json()
+    } catch (error) {
+        console.error("Failed to get model info:", error)
+        return null
+    }
+}

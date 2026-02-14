@@ -1,0 +1,445 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REVOKED
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  emailVerified   DateTime?
+  passwordHash    String?
+  name            String?
+  role            UserRole      @default(PATIENT)
+  accountStatus   AccountStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  lastLoginAt     DateTime?
+
+  // Relations
+  accounts        Account[]
+  sessions        Session[]
+  patient         Patient?
+  doctor          Doctor?
+  admin           Admin?
+  accessLogs      AccessLog[]
+  
+  @@index([email])
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================
+// PATIENT (Level 1)
+// ============================================
+
+model Patient {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  pseudonymId     String    @unique @default(cuid()) // De-identified reference
+  regionCode      String
+  consentSignedAt DateTime?
+  consentVersion  String?
+  dateOfBirth     DateTime?
+  
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cases           Case[]
+  chatSessions    ChatSession[]
+  chatMessages    ChatMessage[]  @relation("PatientMessages")
+  
+  @@index([regionCode])
+  @@index([pseudonymId])
+}
+
+// ============================================
+// DOCTOR (Level 2)
+// ============================================
+
+model Doctor {
+  id                   String              @id @default(cuid())
+  userId               String              @unique
+  licenseNumber        String              @unique
+  licenseVerifiedAt    DateTime?
+  licenseExpiry        DateTime
+  specialty            String
+  assignedRegions      String[]
+  verificationStatus   VerificationStatus  @default(PENDING)
+  
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedCases        Case[]
+  reviews              DoctorReview[]
+  approvedCommunications PatientCommunication[]
+  chatSessions         ChatSession[]
+  chatMessages         ChatMessage[]       @relation("DoctorMessages")
+  
+  @@index([verificationStatus])
+  @@index([assignedRegions])
+}
+
+// ============================================
+// ADMIN (Level 3)
+// ============================================
+
+model Admin {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  permissions     Json     // Flexible permission structure
+  createdBy       String?  // Reference to admin who created this admin
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Model management
+  deployedModels  ModelVersion[]
+  approvedDatasets TrainingDataset[]
+  reviewedDrifts  DriftMonitoring[]
+}
+
+// ============================================
+// MEDICAL CASES & IMAGES
+// ============================================
+
+enum CaseStatus {
+  PENDING_REVIEW
+  UNDER_REVIEW
+  REVIEWED
+  CLOSED
+}
+
+model Case {
+  id              String      @id @default(cuid())
+  patientId       String
+  regionCode      String
+  status          CaseStatus  @default(PENDING_REVIEW)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  assignedDoctorId String?
+  assignedAt      DateTime?
+  
+  patient         Patient     @relation(fields: [patientId], references: [id])
+  assignedDoctor  Doctor?     @relation(fields: [assignedDoctorId], references: [id])
+  images          ImageMetadata[]
+  aiInferences    AIInference[]
+  doctorReviews   DoctorReview[]
+  communications  PatientCommunication[]
+  chatSessions    ChatSession[]
+  dataAccessLogs  DataAccessLog[]
+  
+  @@index([status])
+  @@index([regionCode])
+  @@index([patientId])
+  @@index([assignedDoctorId])
+}
+
+model ImageMetadata {
+  id               String    @id @default(cuid())
+  caseId           String
+  storageReference String    // Encrypted blob storage path
+  modality         String    @default("MG") // Mammography
+  viewPosition     String?   // CC, MLO
+  laterality       String?   // LEFT, RIGHT
+  imageHashSha256  String    // Integrity verification
+  uploadedAt       DateTime  @default(now())
+  
+  case             Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  
+  @@index([caseId])
+}
+
+// ============================================
+// AI/ML SYSTEM
+// ============================================
+
+enum RiskTier {
+  LOW
+  MODERATE
+  ELEVATED
+  HIGH
+}
+
+model AIInference {
+  id                    String      @id @default(cuid())
+  caseId                String
+  modelVersion          String
+  riskTier              RiskTier
+  attentionMapReference String?     // Path to stored attention heatmap
+  inferenceTimestamp    DateTime    @default(now())
+  shownToDoctor         Boolean     @default(false)
+  rawOutputJson         Json?       // Stored for audit, never shown to patients
+  
+  case                  Case        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  doctorReview          DoctorReview?
+  decisionLog           ModelDecisionLog?
+  
+  @@index([caseId])
+  @@index([modelVersion])
+}
+
+enum Recommendation {
+  ROUTINE_SCREENING
+  SHORT_TERM_FOLLOWUP
+  ADDITIONAL_IMAGING
+  BIOPSY_RECOMMENDED
+  IMMEDIATE_REFERRAL
+}
+
+enum AIAgreement {
+  AGREE
+  PARTIAL
+  DISAGREE
+}
+
+model DoctorReview {
+  id                   String         @id @default(cuid())
+  caseId               String
+  doctorId             String
+  biradsClassification Int            // 0-6
+  clinicalNotes        String?        @db.Text
+  recommendation       Recommendation
+  aiInferenceId        String?        @unique
+  aiAgreement          AIAgreement?
+  reviewStartedAt      DateTime?
+  reviewCompletedAt    DateTime       @default(now())
+  
+  case                 Case           @relation(fields: [caseId], references: [id])
+  doctor               Doctor         @relation(fields: [doctorId], references: [id])
+  aiInference          AIInference?   @relation(fields: [aiInferenceId], references: [id])
+  
+  @@index([caseId])
+  @@index([doctorId])
+}
+
+model PatientCommunication {
+  id                 String    @id @default(cuid())
+  caseId             String
+  summaryText        String    @db.Text // Plain-language, non-alarming
+  recommendationText String    @db.Text
+  generatedAt        DateTime  @default(now())
+  approvedByDoctorId String?
+  approvedAt         DateTime?
+  sentToPatient      Boolean   @default(false)
+  sentAt             DateTime?
+  
+  case               Case      @relation(fields: [caseId], references: [id])
+  approvedByDoctor   Doctor?   @relation(fields: [approvedByDoctorId], references: [id])
+  
+  @@index([caseId])
+}
+
+// ============================================
+// ML OPS - MODEL MANAGEMENT
+// ============================================
+
+enum ModelStatus {
+  STAGING
+  ACTIVE
+  DEPRECATED
+  ROLLED_BACK
+}
+
+model ModelVersion {
+  id                  String        @id @default(cuid())
+  version             String        @unique
+  architecture        String
+  trainingDatasetHash String
+  validationMetrics   Json
+  status              ModelStatus   @default(STAGING)
+  deployedAt          DateTime?
+  deployedById        String?
+  rollbackVersion     String?
+  createdAt           DateTime      @default(now())
+  
+  deployedBy          Admin?        @relation(fields: [deployedById], references: [id])
+  driftMonitoring     DriftMonitoring[]
+  
+  @@index([status])
+}
+
+model TrainingDataset {
+  id                String    @id @default(cuid())
+  version           String    @unique
+  caseIds           String[]
+  inclusionCriteria Json
+  approvedById      String?
+  approvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  
+  approvedBy        Admin?    @relation(fields: [approvedById], references: [id])
+}
+
+model DriftMonitoring {
+  id                      String       @id @default(cuid())
+  modelVersionId          String
+  measurementDate         DateTime     @default(now())
+  disagreementRate        Float
+  confidenceDistribution  Json
+  alertTriggered          Boolean      @default(false)
+  reviewedById            String?
+  reviewedAt              DateTime?
+  
+  modelVersion            ModelVersion @relation(fields: [modelVersionId], references: [id])
+  reviewedBy              Admin?       @relation(fields: [reviewedById], references: [id])
+  
+  @@index([modelVersionId])
+  @@index([alertTriggered])
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
+
+model AccessLog {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String
+  resourceType String?
+  resourceId  String?
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+  metadata    Json?
+  
+  user        User     @relation(fields: [userId], references: [id])
+  
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+}
+
+model DataAccessLog {
+  id            String   @id @default(cuid())
+  accessorId    String
+  accessorType  String   // DOCTOR, ADMIN, SYSTEM
+  caseId        String
+  accessType    String   // VIEW, DOWNLOAD, EXPORT
+  justification String?
+  timestamp     DateTime @default(now())
+  
+  case          Case     @relation(fields: [caseId], references: [id])
+  
+  @@index([caseId])
+  @@index([accessorId])
+  @@index([timestamp])
+}
+
+model ModelDecisionLog {
+  id             String      @id @default(cuid())
+  aiInferenceId  String      @unique
+  inputHash      String
+  outputJson     Json
+  doctorOverride Boolean     @default(false)
+  timestamp      DateTime    @default(now())
+  
+  aiInference    AIInference @relation(fields: [aiInferenceId], references: [id])
+  
+  @@index([timestamp])
+}
+
+// ============================================
+// REAL-TIME CHAT
+// ============================================
+
+enum ChatSessionStatus {
+  ACTIVE
+  CLOSED
+}
+
+model ChatSession {
+  id              String            @id @default(cuid())
+  caseId          String
+  patientId       String
+  doctorId        String
+  status          ChatSessionStatus @default(ACTIVE)
+  isMandatory     Boolean           @default(false) // True during active screening
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  closedAt        DateTime?
+  closedByDoctorAt DateTime?        // When doctor explicitly closed the session
+
+  case            Case              @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  patient         Patient           @relation(fields: [patientId], references: [id])
+  doctor          Doctor            @relation(fields: [doctorId], references: [id])
+  messages        ChatMessage[]
+
+  @@unique([caseId, doctorId, patientId])
+  @@index([caseId])
+  @@index([doctorId])
+  @@index([patientId])
+  @@index([status])
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  sessionId     String
+  senderRole    UserRole    // PATIENT or DOCTOR
+  senderDoctorId  String?
+  senderPatientId String?
+  content       String      @db.Text
+  isRead        Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+
+  session       ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  senderDoctor  Doctor?     @relation("DoctorMessages", fields: [senderDoctorId], references: [id])
+  senderPatient Patient?    @relation("PatientMessages", fields: [senderPatientId], references: [id])
+
+  @@index([sessionId])
+  @@index([createdAt])
+}
