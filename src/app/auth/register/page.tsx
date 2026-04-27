@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { signIn } from "next-auth/react"
 import Link from "next/link"
@@ -71,7 +71,7 @@ function PasswordStrengthMeter({ password }: { password: string }) {
     )
 }
 
-export default function RegisterPage() {
+function RegisterForm() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const initialType = searchParams.get("type") === "doctor" ? "doctor" : "patient"
@@ -571,5 +571,13 @@ export default function RegisterPage() {
                 </div>
             </div>
         </main>
+    )
+}
+
+export default function RegisterPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+            <RegisterForm />
+        </Suspense>
     )
 }
