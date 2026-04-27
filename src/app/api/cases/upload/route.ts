@@ -137,7 +137,16 @@ export async function POST(request: NextRequest) {
                 }
 
                 // Generate secure storage reference (no patient info in path)
-                const extension = fileType.type === "dicom" ? "dcm" : fileType.type
+                // Map detected types to file extensions
+                const extensionMap: Record<string, string> = {
+                    dicom: "dcm",
+                    jpeg: "jpg",
+                    png: "png",
+                    tiff: "tiff",
+                    bmp: "bmp",
+                    webp: "webp",
+                }
+                const extension = extensionMap[fileType.type] ?? fileType.type
                 const storageReference = generateStorageReference(extension)
 
                 // Save to storage
@@ -245,7 +254,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
         maxFileSize: MAX_FILE_SIZE,
         maxFiles: 4,
-        allowedFormats: ["DICOM (.dcm)", "PNG", "JPEG"],
+        allowedFormats: ["DICOM (.dcm)", "JPEG (.jpg/.jpeg)", "PNG (.png)", "TIFF (.tif/.tiff)", "BMP (.bmp)", "WebP (.webp)"],
         modality: "Mammography (MG)",
     })
 }

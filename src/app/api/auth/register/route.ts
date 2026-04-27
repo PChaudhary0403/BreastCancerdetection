@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs"
 import { NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 import { UserRole } from "@prisma/client"
-
+import crypto from "crypto"
+import { sendVerificationEmail } from "@/lib/email"
 // Registration schema with validation
 const patientRegistrationSchema = z.object({
     email: z.string().email("Invalid email address"),
@@ -14,6 +15,7 @@ const patientRegistrationSchema = z.object({
         .regex(/[a-z]/, "Password must contain at least one lowercase letter")
         .regex(/[0-9]/, "Password must contain at least one number"),
     name: z.string().min(2, "Name must be at least 2 characters"),
+    phoneNumber: z.string().regex(/^\+?[1-9]\d{1,14}$/, "Valid phone number is required"),
     regionCode: z.string().min(2, "Region code is required"),
     consentAccepted: z.boolean().refine(val => val === true, {
         message: "You must accept the consent form"
@@ -29,6 +31,7 @@ const doctorRegistrationSchema = z.object({
         .regex(/[a-z]/, "Password must contain at least one lowercase letter")
         .regex(/[0-9]/, "Password must contain at least one number"),
     name: z.string().min(2, "Name must be at least 2 characters"),
+    phoneNumber: z.string().regex(/^\+?[1-9]\d{1,14}$/, "Valid phone number is required"),
     licenseNumber: z.string().min(5, "License number is required"),
     licenseExpiry: z.string().refine(val => new Date(val) > new Date(), {
         message: "License must not be expired"
@@ -67,6 +70,7 @@ export async function POST(request: NextRequest) {
                         email: validatedData.email.toLowerCase(),
                         passwordHash,
                         name: validatedData.name,
+                        phoneNumber: validatedData.phoneNumber,
                         role: UserRole.PATIENT,
                     }
                 })
@@ -93,9 +97,25 @@ export async function POST(request: NextRequest) {
                 return newUser
             })
 
+            // Generate verification token
+            const token = crypto.randomBytes(32).toString('hex')
+            const expires = new Date()
+            expires.setHours(expires.getHours() + 24) // 24 hours from now
+
+            await prisma.verificationToken.create({
+                data: {
+                    identifier: user.email,
+                    token,
+                    expires
+                }
+            })
+
+            // Send verification email (non-blocking)
+            sendVerificationEmail(user.email, token).catch(e => console.error("Email error:", e))
+
             return NextResponse.json({
                 success: true,
-                message: "Registration successful. Please sign in.",
+                message: "Registration successful. Please check your inbox to verify your email.",
                 userId: user.id
             })
 
@@ -136,6 +156,7 @@ export async function POST(request: NextRequest) {
                         email: validatedData.email.toLowerCase(),
                         passwordHash,
                         name: validatedData.name,
+                        phoneNumber: validatedData.phoneNumber,
                         role: UserRole.DOCTOR,
                     }
                 })

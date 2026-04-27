@@ -9,6 +9,7 @@ import {
     ArrowRight, Sparkles, Activity, Eye
 } from "lucide-react"
 import { formatDateTime } from "@/lib/utils"
+import OutputReportPanel from "@/components/OutputReportPanel"
 
 export default async function DoctorDashboard() {
     const session = await getServerSession(authOptions)
@@ -347,6 +348,11 @@ export default async function DoctorDashboard() {
                             Your clinical judgment is the final authority on all cases.
                         </p>
                     </div>
+                </div>
+
+                {/* Output Report Panel */}
+                <div className="mt-8 card-glass p-6 animate-fade-in-up" style={{ animationDelay: "800ms" }}>
+                    <OutputReportPanel />
                 </div>
             </main>
         </div>

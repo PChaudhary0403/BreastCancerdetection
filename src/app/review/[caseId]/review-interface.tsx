@@ -1,12 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
     ArrowLeft, HeartPulse, FileImage, Eye, EyeOff,
-    CheckCircle, AlertCircle, Send, Loader2, Info, MessageCircle
+    CheckCircle, AlertCircle, Send, Loader2, Info, MessageCircle,
+    RefreshCw, ZoomIn, ImageIcon
 } from "lucide-react"
+
+// Per-image load state
+type ImageStatus = "loading" | "loaded" | "error"
 
 interface ReviewInterfaceProps {
     caseData: {
@@ -82,6 +86,51 @@ export default function ReviewInterface({
     const [isRunningAI, setIsRunningAI] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [selectedImage, setSelectedImage] = useState(0)
+    // Track load/error state for each image independently
+    const [imageStatuses, setImageStatuses] = useState<Record<string, ImageStatus>>({})
+    // Per-image error messages fetched from the API
+    const [imageErrors, setImageErrors] = useState<Record<string, string>>({})
+    // Cache-bust key per image for retry
+    const [retryCounts, setRetryCounts] = useState<Record<string, number>>({})
+
+    const getImageUrl = useCallback((imageId: string) => {
+        const bust = retryCounts[imageId] || 0
+        return bust > 0
+            ? `/api/images/${imageId}?v=${bust}`
+            : `/api/images/${imageId}`
+    }, [retryCounts])
+
+    const setImageStatus = useCallback((imageId: string, status: ImageStatus) => {
+        setImageStatuses(prev => ({ ...prev, [imageId]: status }))
+    }, [])
+
+    // Fetch the real error message from the API when an image fails to load
+    const handleImageError = useCallback(async (imageId: string, url: string) => {
+        setImageStatus(imageId, "error")
+        try {
+            const res = await fetch(url)
+            if (!res.ok) {
+                const ct = res.headers.get("content-type") ?? ""
+                if (ct.includes("application/json")) {
+                    const data = await res.json()
+                    setImageErrors(prev => ({
+                        ...prev,
+                        [imageId]: data.error ?? `HTTP ${res.status}`
+                    }))
+                } else {
+                    setImageErrors(prev => ({ ...prev, [imageId]: `HTTP ${res.status}` }))
+                }
+            }
+        } catch {
+            setImageErrors(prev => ({ ...prev, [imageId]: "Network error" }))
+        }
+    }, [setImageStatus])
+
+    const retryImage = useCallback((imageId: string) => {
+        setRetryCounts(prev => ({ ...prev, [imageId]: (prev[imageId] || 0) + 1 }))
+        setImageStatus(imageId, "loading")
+        setImageErrors(prev => { const n = { ...prev }; delete n[imageId]; return n })
+    }, [setImageStatus])
 
     const handlePhase1Submit = () => {
         if (birads === null) {
@@ -217,20 +266,75 @@ export default function ReviewInterface({
                         {/* Main Image Display */}
                         <div className="card p-4">
                             <div className="aspect-[3/4] bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center mb-4 relative group">
-                                {caseData.images.length > 0 ? (
-                                    <>
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img
-                                            src={`/api/images/${caseData.images[selectedImage].id}`}
-                                            alt={`${caseData.images[selectedImage].laterality} ${caseData.images[selectedImage].viewPosition}`}
-                                            className="w-full h-full object-contain cursor-zoom-in"
-                                            onClick={() => window.open(`/api/images/${caseData.images[selectedImage].id}`, '_blank')}
-                                        />
-                                        <div className="absolute top-4 left-4 px-2 py-1 bg-black/50 backdrop-blur-md rounded text-white text-xs font-mono uppercase">
-                                            {caseData.images[selectedImage].laterality} {caseData.images[selectedImage].viewPosition}
-                                        </div>
-                                    </>
-                                ) : (
+                                {caseData.images.length > 0 ? (() => {
+                                    const img = caseData.images[selectedImage]
+                                    const status = imageStatuses[img.id] ?? "loading"
+                                    const url = getImageUrl(img.id)
+                                    return (
+                                        <>
+                                            {/* Loading overlay */}
+                                            {status === "loading" && (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-10">
+                                                    <Loader2 className="w-10 h-10 text-blue-400 animate-spin mb-3" />
+                                                    <p className="text-slate-400 text-sm">Converting to JPEG…</p>
+                                                </div>
+                                            )}
+
+                                            {/* Error overlay */}
+                                            {status === "error" && (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-10 px-6 text-center">
+                                                    <AlertCircle className="w-10 h-10 text-red-400 mb-3" />
+                                                    <p className="text-slate-300 text-sm font-medium mb-1">Failed to display image</p>
+                                                    {imageErrors[img.id] && (
+                                                        <p className="text-slate-500 text-xs mb-4 max-w-xs">{imageErrors[img.id]}</p>
+                                                    )}
+                                                    <button
+                                                        onClick={() => retryImage(img.id)}
+                                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors"
+                                                    >
+                                                        <RefreshCw className="w-4 h-4" />
+                                                        Retry
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* Actual image — hidden until loaded */}
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                key={url}
+                                                src={url}
+                                                alt={`${img.laterality ?? ""} ${img.viewPosition ?? ""}`}
+                                                className={`w-full h-full object-contain cursor-zoom-in transition-opacity duration-300 ${status === "loaded" ? "opacity-100" : "opacity-0"}`}
+                                                onLoadStart={() => setImageStatus(img.id, "loading")}
+                                                onLoad={() => setImageStatus(img.id, "loaded")}
+                                                onError={() => handleImageError(img.id, url)}
+                                                onClick={() => window.open(url, "_blank")}
+                                            />
+
+                                            {/* View / label badges (only when loaded) */}
+                                            {status === "loaded" && (
+                                                <>
+                                                    {/* Position label */}
+                                                    <div className="absolute top-3 left-3 px-2 py-1 bg-black/60 backdrop-blur-md rounded text-white text-xs font-mono uppercase tracking-wide">
+                                                        {img.laterality} {img.viewPosition}
+                                                    </div>
+
+                                                    {/* JPEG format badge */}
+                                                    <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 bg-emerald-600/80 backdrop-blur-md rounded text-white text-xs font-semibold">
+                                                        <ImageIcon className="w-3 h-3" />
+                                                        JPEG
+                                                    </div>
+
+                                                    {/* Zoom hint on hover */}
+                                                    <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center gap-1 px-2 py-1 bg-black/60 backdrop-blur-md rounded text-white text-xs">
+                                                        <ZoomIn className="w-3 h-3" />
+                                                        Click to zoom
+                                                    </div>
+                                                </>
+                                            )}
+                                        </>
+                                    )
+                                })() : (
                                     <div className="text-center text-slate-400">
                                         <FileImage className="w-16 h-16 mx-auto mb-2" />
                                         <p className="text-sm">No images available</p>
@@ -238,27 +342,54 @@ export default function ReviewInterface({
                                 )}
                             </div>
 
-                            {/* Image Thumbnails */}
+                            {/* Image Thumbnails — real JPEG previews */}
                             <div className="flex gap-2 overflow-x-auto pb-2">
-                                {caseData.images.map((img, index) => (
-                                    <button
-                                        key={img.id}
-                                        onClick={() => setSelectedImage(index)}
-                                        className={`flex-shrink-0 w-16 h-16 rounded-lg border-2 transition-colors ${selectedImage === index
-                                            ? "border-blue-500 bg-blue-50"
-                                            : "border-slate-200 hover:border-slate-300"
-                                            } flex items-center justify-center`}
-                                    >
-                                        <div className="text-center">
-                                            <p className="text-xs font-medium text-slate-600">
-                                                {img.laterality?.charAt(0) || "?"}
-                                            </p>
-                                            <p className="text-xs text-slate-400">
-                                                {img.viewPosition || "N/A"}
-                                            </p>
-                                        </div>
-                                    </button>
-                                ))}
+                                {caseData.images.map((img, index) => {
+                                    const thumbStatus = imageStatuses[img.id] ?? "loading"
+                                    const thumbUrl = getImageUrl(img.id)
+                                    const isActive = selectedImage === index
+                                    return (
+                                        <button
+                                            key={img.id}
+                                            onClick={() => setSelectedImage(index)}
+                                            className={`relative flex-shrink-0 w-16 h-16 rounded-lg border-2 overflow-hidden transition-all duration-200 ${isActive
+                                                ? "border-blue-500 ring-2 ring-blue-300 ring-offset-1"
+                                                : "border-slate-200 hover:border-slate-400"
+                                                }`}
+                                        >
+                                            {/* Thumbnail image */}
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                key={thumbUrl}
+                                                src={thumbUrl}
+                                                alt={`Thumb ${img.laterality} ${img.viewPosition}`}
+                                                className={`w-full h-full object-cover transition-opacity duration-300 ${thumbStatus === "loaded" ? "opacity-100" : "opacity-0"}`}
+                                                onLoad={() => setImageStatus(img.id, "loaded")}
+                                                onError={() => setImageStatus(img.id, "error")}
+                                            />
+
+                                            {/* Thumbnail loading */}
+                                            {thumbStatus === "loading" && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-slate-800">
+                                                    <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                                                </div>
+                                            )}
+
+                                            {/* Thumbnail error */}
+                                            {thumbStatus === "error" && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-slate-800">
+                                                    <AlertCircle className="w-4 h-4 text-red-400" />
+                                                </div>
+                                            )}
+
+                                            {/* Label overlay */}
+                                            <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-center" style={{ fontSize: "9px", lineHeight: "1.2", padding: "2px 0" }}>
+                                                <span className="font-medium">{img.laterality?.charAt(0) ?? "?"}</span>
+                                                <span className="opacity-75"> {img.viewPosition ?? "N/A"}</span>
+                                            </div>
+                                        </button>
+                                    )
+                                })}
                             </div>
                         </div>
 

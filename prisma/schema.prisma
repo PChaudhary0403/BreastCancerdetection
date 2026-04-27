@@ -35,6 +35,7 @@ model User {
   emailVerified   DateTime?
   passwordHash    String?
   name            String?
+  phoneNumber     String?
   role            UserRole      @default(PATIENT)
   accountStatus   AccountStatus @default(ACTIVE)
   createdAt       DateTime      @default(now())

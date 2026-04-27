@@ -207,6 +207,29 @@ export function detectFileType(buffer: Buffer, filename: string): { type: string
         }
     }
 
+    // Check TIFF (little-endian: 49 49 2A 00, big-endian: 4D 4D 00 2A)
+    if (buffer.length >= 4) {
+        const b0 = buffer[0], b1 = buffer[1], b2 = buffer[2], b3 = buffer[3]
+        if ((b0 === 0x49 && b1 === 0x49 && b2 === 0x2a && b3 === 0x00) ||
+            (b0 === 0x4d && b1 === 0x4d && b2 === 0x00 && b3 === 0x2a)) {
+            return { type: "tiff", valid: true }
+        }
+    }
+
+    // Check BMP (BM header)
+    if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d) {
+        return { type: "bmp", valid: true }
+    }
+
+    // Check WebP (RIFF....WEBP)
+    if (buffer.length >= 12) {
+        const riff = buffer.toString("ascii", 0, 4)
+        const webp = buffer.toString("ascii", 8, 12)
+        if (riff === "RIFF" && webp === "WEBP") {
+            return { type: "webp", valid: true }
+        }
+    }
+
     // Check file extension as fallback
     const ext = filename.toLowerCase().split(".").pop()
     if (ext === "dcm" || ext === "dicom") {
@@ -218,11 +241,20 @@ export function detectFileType(buffer: Buffer, filename: string): { type: string
     if (ext === "jpg" || ext === "jpeg") {
         return { type: "jpeg", valid: true }
     }
+    if (ext === "tif" || ext === "tiff") {
+        return { type: "tiff", valid: true }
+    }
+    if (ext === "bmp") {
+        return { type: "bmp", valid: true }
+    }
+    if (ext === "webp") {
+        return { type: "webp", valid: true }
+    }
 
     return {
         type: "unknown",
         valid: false,
-        error: "Unsupported file format. Please upload DICOM, PNG, or JPEG files."
+        error: "Unsupported file format. Please upload DICOM, PNG, JPEG, TIFF, BMP, or WebP files."
     }
 }
 

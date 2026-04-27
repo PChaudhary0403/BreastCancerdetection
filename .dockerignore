@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.local
+coverage
+*.md
+*.log
+uploads/images/*
+uploads/attention-maps/*
+tsconfig.tsbuildinfo

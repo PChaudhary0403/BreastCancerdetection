@@ -8,9 +8,17 @@
  */
 
 import { readFromStorage } from "./storage"
+import { cacheGet, cacheSet } from "./redis"
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000"
-const ML_SERVICE_API_KEY = process.env.ML_SERVICE_API_KEY || "dev-key"
+const ML_SERVICE_API_KEY = process.env.ML_SERVICE_API_KEY || ""
+
+// Warn at import-time if using insecure defaults
+if (!ML_SERVICE_API_KEY) {
+    console.warn("[SECURITY] ML_SERVICE_API_KEY is not set. ML service calls will fail.")
+} else if (ML_SERVICE_API_KEY === "dev-key") {
+    console.warn("[SECURITY] ML_SERVICE_API_KEY is set to the default 'dev-key'. Change this in production.")
+}
 
 export interface MLInferenceResult {
     inference_id: string
@@ -35,9 +43,17 @@ export interface MLServiceHealth {
 }
 
 /**
- * Check if ML service is healthy
+ * Check if ML service is healthy.
+ * Cached in Redis for 30 seconds to reduce load.
  */
 export async function checkMLServiceHealth(): Promise<MLServiceHealth> {
+    const CACHE_KEY = "ml:health"
+    const CACHE_TTL = 30 // seconds
+
+    // Try cache first
+    const cached = await cacheGet<MLServiceHealth>(CACHE_KEY)
+    if (cached) return cached
+
     try {
         const response = await fetch(`${ML_SERVICE_URL}/health`, {
             method: "GET",
@@ -50,7 +66,9 @@ export async function checkMLServiceHealth(): Promise<MLServiceHealth> {
             throw new Error(`ML Service unhealthy: ${response.status}`)
         }
 
-        return await response.json()
+        const data: MLServiceHealth = await response.json()
+        await cacheSet(CACHE_KEY, data, CACHE_TTL)
+        return data
     } catch (error) {
         console.error("ML Service health check failed:", error)
         return {
@@ -80,7 +98,7 @@ export async function runInference(
 
         // Create form data
         const formData = new FormData()
-        formData.append("file", new Blob([imageBuffer]), "image.dcm")
+        formData.append("file", new Blob([new Uint8Array(imageBuffer)]), "image.dcm")
         if (caseId) {
             formData.append("case_id", caseId)
         }
@@ -142,11 +160,12 @@ export async function runBatchInference(
             HIGH: 3,
         }
 
-        const aggregatedRiskTier = inferences.reduce((highest, current) => {
+        type RiskTier = "LOW" | "MODERATE" | "ELEVATED" | "HIGH"
+        const aggregatedRiskTier = inferences.reduce<RiskTier>((highest, current) => {
             return riskTierOrder[current.risk_tier] > riskTierOrder[highest]
-                ? current.risk_tier
+                ? current.risk_tier as RiskTier
                 : highest
-        }, "LOW") as "LOW" | "MODERATE" | "ELEVATED" | "HIGH"
+        }, "LOW")
 
         const highestBirads = Math.max(...inferences.map((i) => i.birads_prediction))
         const averageConfidence =
@@ -165,9 +184,16 @@ export async function runBatchInference(
 }
 
 /**
- * Get model information
+ * Get model information.
+ * Cached in Redis for 5 minutes — model info changes rarely.
  */
 export async function getModelInfo(): Promise<Record<string, unknown> | null> {
+    const CACHE_KEY = "ml:model-info"
+    const CACHE_TTL = 300 // 5 minutes
+
+    const cached = await cacheGet<Record<string, unknown>>(CACHE_KEY)
+    if (cached) return cached
+
     try {
         const response = await fetch(`${ML_SERVICE_URL}/model-info`, {
             method: "GET",
@@ -180,7 +206,9 @@ export async function getModelInfo(): Promise<Record<string, unknown> | null> {
             throw new Error(`Failed to get model info: ${response.status}`)
         }
 
-        return await response.json()
+        const data = await response.json()
+        await cacheSet(CACHE_KEY, data, CACHE_TTL)
+        return data
     } catch (error) {
         console.error("Failed to get model info:", error)
         return null

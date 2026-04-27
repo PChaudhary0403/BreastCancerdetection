@@ -85,30 +85,49 @@ export async function GET(
             }
         })
 
-        // Read and return the image
+        // Read the raw image from storage (decrypted)
         try {
             const imageBuffer = await readFromStorage(image.storageReference)
 
-            // Determine content type
-            const ext = image.storageReference.split(".").pop()?.toLowerCase()
-            let contentType = "application/octet-stream"
+            const ext = image.storageReference.split(".").pop()?.toLowerCase() ?? ""
+            const isDicom = ext === "dcm" || ext === "dicom"
 
-            if (ext === "dcm" || ext === "dicom") {
-                contentType = "application/dicom"
-            } else if (ext === "png") {
-                contentType = "image/png"
-            } else if (ext === "jpg" || ext === "jpeg") {
-                contentType = "image/jpeg"
+            // ── All formats → JPEG via sharp (or DICOM converter) ─────────────
+            let jpegBuffer: Buffer
+            let sourceFormat = ext
+
+            try {
+                if (isDicom) {
+                    // Parse DICOM pixel data and convert to JPEG
+                    const { dicomBufferToJpeg } = await import("@/lib/dicom-to-jpeg")
+                    const result = await dicomBufferToJpeg(imageBuffer, 90)
+                    jpegBuffer = result.jpeg
+                    sourceFormat = result.hasPixelData ? "dicom" : "dicom-placeholder"
+                } else {
+                    const sharpMod = (await import("sharp")).default
+                    jpegBuffer = await sharpMod(imageBuffer)
+                        .rotate()
+                        .jpeg({ quality: 92, progressive: true })
+                        .toBuffer()
+                }
+            } catch (conversionError) {
+                console.error(`Image conversion failed for ${imageId} (${ext}):`, conversionError)
+                return NextResponse.json(
+                    { error: "Image could not be converted to JPEG. The file may be corrupt or in an unsupported encoding." },
+                    { status: 422 }
+                )
             }
 
-            return new NextResponse(imageBuffer, {
+            return new NextResponse(new Uint8Array(jpegBuffer), {
                 status: 200,
                 headers: {
-                    "Content-Type": contentType,
+                    "Content-Type": "image/jpeg",
                     "Cache-Control": "private, max-age=3600",
-                    "Content-Disposition": `inline; filename="${imageId}.${ext}"`,
-                }
+                    "Content-Disposition": `inline; filename="${imageId}.jpg"`,
+                    "X-Image-Format": `converted-from-${sourceFormat}`,
+                },
             })
+
         } catch (storageError) {
             console.error("Failed to read image from storage:", storageError)
             return NextResponse.json(
