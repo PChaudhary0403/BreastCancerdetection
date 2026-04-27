@@ -1,0 +1,16 @@
+# Ignore these files when deploying to Vercel
+.env*
+!.env.example
+uploads/
+*.ts.bak
+server.ts
+check-paths.ts
+fix-seed-paths.ts
+make-admin.ts
+set-admin-password.ts
+test-ml.ts
+vitest.config.ts
+coverage/
+.dockerignore
+Dockerfile
+build.log
