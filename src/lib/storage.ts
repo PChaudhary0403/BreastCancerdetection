@@ -137,13 +137,14 @@ export async function saveToStorage(
 export async function readFromStorage(storagePath: string): Promise<Buffer> {
     // CBIS-DDSM dataset paths — resolve via env or relative to project root
     if (storagePath.startsWith("CBIS-DDSM")) {
+        const projectRoot = process.cwd() + path.sep + "..";
         const searchPaths = [
             // 1. Explicit env var
             CBIS_DDSM_PATH ? path.join(CBIS_DDSM_PATH, storagePath.replace(/^CBIS-DDSM\/?/, "")) : "",
-            // 2. Relative to project root (one level up from cwd)
-            path.join(process.cwd(), "..", storagePath),
-            // 3. Relative to cwd
-            path.join(process.cwd(), storagePath),
+            // 2. Relative to project root (one level up from cwd) - hidden from @vercel/nft
+            path.join(projectRoot, storagePath),
+            // 3. Relative to cwd - hidden from @vercel/nft to prevent over-bundling 
+            process.cwd() + path.sep + storagePath,
         ].filter(Boolean)
 
         for (const candidate of searchPaths) {
