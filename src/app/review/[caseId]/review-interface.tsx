@@ -6,8 +6,9 @@ import Link from "next/link"
 import {
     ArrowLeft, HeartPulse, FileImage, Eye, EyeOff,
     CheckCircle, AlertCircle, Send, Loader2, Info, MessageCircle,
-    RefreshCw, ZoomIn, ImageIcon
+    RefreshCw, ZoomIn, ImageIcon, Sparkles
 } from "lucide-react"
+import MedSAMAnnotator from "@/components/MedSAMAnnotator"
 
 // Per-image load state
 type ImageStatus = "loading" | "loaded" | "error"
@@ -92,6 +93,12 @@ export default function ReviewInterface({
     const [imageErrors, setImageErrors] = useState<Record<string, string>>({})
     // Cache-bust key per image for retry
     const [retryCounts, setRetryCounts] = useState<Record<string, number>>({})
+    // MedSAM segmentation state
+    const [medsamApproved, setMedsamApproved] = useState(false)
+    const [medsamResult, setMedsamResult] = useState<{
+        inference_id: string
+        overlay_reference: string | null
+    } | null>(null)
 
     const getImageUrl = useCallback((imageId: string) => {
         const bust = retryCounts[imageId] || 0
@@ -495,6 +502,45 @@ export default function ReviewInterface({
                                         AI assistance is hidden. Re-enable to see predictions.
                                     </p>
                                 )}
+                            </div>
+                        )}
+
+                        {/* MedSAM Tumor Segmentation — available in both phases */}
+                        {caseData.images.length > 0 && (() => {
+                            const img = caseData.images[selectedImage]
+                            const url = getImageUrl(img.id)
+                            return (
+                                <MedSAMAnnotator
+                                    imageUrl={url}
+                                    imageId={img.id}
+                                    laterality={img.laterality}
+                                    viewPosition={img.viewPosition}
+                                    onSegmentationApproved={(result) => {
+                                        setMedsamApproved(true)
+                                        setMedsamResult({
+                                            inference_id: result.inference_id,
+                                            overlay_reference: result.overlay_reference,
+                                        })
+                                    }}
+                                />
+                            )
+                        })()}
+
+                        {/* MedSAM Approval Confirmation */}
+                        {medsamApproved && medsamResult && (
+                            <div className="p-4 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3 animate-fade-in-up">
+                                <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
+                                    <CheckCircle className="w-4 h-4 text-green-600" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-green-800">
+                                        Segmentation approved for patient report
+                                    </p>
+                                    <p className="text-xs text-green-600 mt-0.5">
+                                        MedSAM overlay will be attached to the case report.
+                                        ID: {medsamResult.inference_id.slice(-8).toUpperCase()}
+                                    </p>
+                                </div>
                             </div>
                         )}
                     </div>

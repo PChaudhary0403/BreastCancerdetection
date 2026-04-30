@@ -42,6 +42,15 @@ export const authOptions: NextAuthOptions = {
             clientId: process.env.GOOGLE_CLIENT_ID || "",
             clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
             allowDangerousEmailAccountLinking: true,
+            profile(profile) {
+                return {
+                    id: profile.sub,
+                    name: profile.name,
+                    email: profile.email,
+                    role: "PATIENT",
+                    accountStatus: "ACTIVE",
+                }
+            }
         }),
         CredentialsProvider({
             name: "credentials",

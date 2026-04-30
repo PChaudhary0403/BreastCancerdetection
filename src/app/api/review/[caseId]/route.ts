@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { z } from "zod"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { sendResultEmail } from "@/lib/email"
 
 const reviewSchema = z.object({
     biradsClassification: z.number().min(0).max(6),
@@ -107,7 +108,7 @@ export async function POST(
         // Verify case exists and is assigned to this doctor
         const caseData = await prisma.case.findUnique({
             where: { id: caseId },
-            include: { patient: true }
+            include: { patient: { include: { user: true } } }
         })
 
         if (!caseData) {
@@ -217,6 +218,27 @@ export async function POST(
 
             return { review, communication }
         })
+
+        // SEND EMAIL HERE
+        const doctorName = session.user.name || "Specialist";
+        const patientName = caseData.patient.user.name || "Patient";
+        const patientEmail = caseData.patient.user.email;
+        
+        try {
+            if (patientEmail) {
+                await sendResultEmail(
+                    patientEmail,
+                    patientName,
+                    result.communication.summaryText,
+                    result.communication.recommendationText,
+                    doctorName,
+                    result.review.biradsClassification,
+                    result.review.clinicalNotes || ""
+                );
+            }
+        } catch (emailError) {
+            console.error("Failed to send result email to patient, continuing anyway:", emailError);
+        }
 
         return NextResponse.json({
             success: true,

@@ -1768,6 +1768,7 @@ html {
 /* Reduce motion for accessibility */
 @media (prefers-reduced-motion: reduce) {
 
+
   *,
   *::before,
   *::after {
@@ -1776,4 +1777,451 @@ html {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ======================== */
+/* MEDSAM ANNOTATOR         */
+/* ======================== */
+
+.medsam-annotator {
+  border-radius: 16px;
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 229, 255, 0.08) inset;
+  overflow: hidden;
+  transition: all 0.3s var(--ease-smooth);
+}
+
+.medsam-annotator:hover {
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 229, 255, 0.15) inset;
+}
+
+/* Header */
+.medsam-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.medsam-header:hover {
+  background: rgba(0, 229, 255, 0.03);
+}
+
+.medsam-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.medsam-icon-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #00e5ff 0%, #00b0ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 229, 255, 0.25);
+  transition: transform 0.3s var(--ease-spring);
+}
+
+.medsam-header:hover .medsam-icon-badge {
+  transform: scale(1.08) rotate(5deg);
+}
+
+.medsam-title {
+  display: block;
+  font-weight: 600;
+  font-size: 15px;
+  color: #1e293b;
+}
+
+.medsam-subtitle {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+.medsam-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.medsam-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.12), rgba(0, 176, 255, 0.12));
+  color: #0077b6;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+}
+
+/* Body */
+.medsam-body {
+  padding: 0 20px 20px;
+  animation: fade-in-up 0.4s var(--ease-smooth) forwards;
+}
+
+/* Instructions */
+.medsam-instructions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 12px;
+  border: 1px solid rgba(0, 229, 255, 0.1);
+  flex-wrap: wrap;
+}
+
+.medsam-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.medsam-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00e5ff, #00b0ff);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.medsam-step-arrow {
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 300;
+}
+
+/* Canvas Container */
+.medsam-canvas-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: #0f172a;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.medsam-base-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.medsam-draw-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+/* Status overlay */
+.medsam-status-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(8px);
+}
+
+.medsam-processing-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 32px 40px;
+  text-align: center;
+  animation: scale-in 0.4s var(--ease-spring) forwards;
+}
+
+.medsam-processing-spinner {
+  color: #00e5ff;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.medsam-processing-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+  margin-bottom: 4px;
+}
+
+.medsam-processing-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 16px;
+}
+
+.medsam-processing-bar {
+  width: 200px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.medsam-processing-bar-fill {
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, #00e5ff, #00b0ff);
+  border-radius: 999px;
+  animation: medsam-progress 1.8s ease-in-out infinite;
+}
+
+@keyframes medsam-progress {
+  0% {
+    width: 10%;
+    margin-left: 0;
+  }
+
+  50% {
+    width: 60%;
+    margin-left: 20%;
+  }
+
+  100% {
+    width: 10%;
+    margin-left: 90%;
+  }
+}
+
+/* Position label */
+.medsam-position-label {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Crosshair hint */
+.medsam-crosshair-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 500;
+  animation: fade-in-up 0.5s var(--ease-smooth) forwards;
+  pointer-events: none;
+}
+
+/* Actions bar */
+.medsam-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.medsam-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.medsam-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.medsam-bbox-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  font-size: 11px;
+  font-family: monospace;
+  color: #475569;
+}
+
+.medsam-result-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.medsam-result-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.medsam-result-badge.detected {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.medsam-result-badge.clear {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.medsam-area-fraction {
+  font-size: 12px;
+  color: #64748b;
+  font-family: monospace;
+}
+
+/* Buttons */
+.medsam-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-smooth);
+  white-space: nowrap;
+}
+
+.medsam-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.medsam-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.medsam-btn-ghost {
+  background: transparent;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.medsam-btn-ghost:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.medsam-btn-secondary {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.medsam-btn-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.medsam-btn-primary {
+  background: linear-gradient(135deg, #00e5ff 0%, #00b0ff 100%);
+  color: white;
+  box-shadow: 0 4px 14px rgba(0, 229, 255, 0.3);
+}
+
+.medsam-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(0, 229, 255, 0.45);
+  transform: translateY(-1px);
+}
+
+.medsam-btn-approve {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  color: white;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+}
+
+.medsam-btn-approve:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(5, 150, 105, 0.45);
+  transform: translateY(-1px);
+}
+
+/* Error */
+.medsam-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+/* Advisory */
+.medsam-advisory {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  font-size: 11px;
+  color: #1e40af;
+  line-height: 1.5;
 }
