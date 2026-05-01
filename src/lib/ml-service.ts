@@ -10,7 +10,10 @@
 import { readFromStorage } from "./storage"
 import { cacheGet, cacheSet } from "./redis"
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000"
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 
+    (process.env.NODE_ENV === "production" 
+        ? "https://pankaj0403-ml-service.hf.space" 
+        : "http://localhost:8000")
 const ML_SERVICE_API_KEY = process.env.ML_SERVICE_API_KEY || ""
 
 // Warn at import-time if using insecure defaults

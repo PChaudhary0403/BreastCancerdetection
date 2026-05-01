@@ -149,6 +149,25 @@ export async function sendResultEmail(
             },
         })
 
+        // Build optional sections as separate strings to avoid nested template literal issues
+        const biradsSection = biradsClassification !== undefined
+            ? `<div style="margin: 32px 0;">
+                    <h3 style="color: #1e293b; margin-bottom: 8px;">BI-RADS Classification</h3>
+                    <div style="background-color: #f1f5f9; padding: 16px; border-radius: 6px; color: #334155; font-weight: bold;">
+                        Category ${biradsClassification}
+                    </div>
+                </div>`
+            : ''
+
+        const clinicalNotesSection = clinicalNotes
+            ? `<div style="margin: 32px 0;">
+                    <h3 style="color: #1e293b; margin-bottom: 8px;">Clinical Notes</h3>
+                    <div style="background-color: #f1f5f9; padding: 16px; border-radius: 6px; color: #334155;">
+                        ${clinicalNotes}
+                    </div>
+                </div>`
+            : ''
+
         const mailOptions = {
             from: process.env.EMAIL_FROM || "noreply@breastscreen.ai",
             to,
@@ -171,23 +190,9 @@ export async function sendResultEmail(
                             </div>
                         </div>
 
-                        ${biradsClassification !== undefined ? \`
-                        <div style="margin: 32px 0;">
-                            <h3 style="color: #1e293b; margin-bottom: 8px;">BI-RADS Classification</h3>
-                            <div style="background-color: #f1f5f9; padding: 16px; border-radius: 6px; color: #334155; font-weight: bold;">
-                                Category \${biradsClassification}
-                            </div>
-                        </div>
-                        \` : ''}
+                        ${biradsSection}
 
-                        ${clinicalNotes ? \`
-                        <div style="margin: 32px 0;">
-                            <h3 style="color: #1e293b; margin-bottom: 8px;">Clinical Notes</h3>
-                            <div style="background-color: #f1f5f9; padding: 16px; border-radius: 6px; color: #334155;">
-                                \${clinicalNotes}
-                            </div>
-                        </div>
-                        \` : ''}
+                        ${clinicalNotesSection}
 
                         <div style="margin: 32px 0;">
                             <h3 style="color: #1e293b; margin-bottom: 8px;">Recommendation</h3>
