@@ -1,6 +1,7 @@
 import crypto from "crypto"
 import fs from "fs/promises"
 import path from "path"
+import { cloudinaryUpload, cloudinaryDownload, cloudinaryDelete } from "./cloudinary"
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -8,6 +9,12 @@ const UPLOAD_DIR = process.env.STORAGE_PATH || "./uploads"
 const CBIS_DDSM_PATH = process.env.CBIS_DDSM_PATH || ""
 // Support both names for backward compatibility
 const ENCRYPTION_KEY = process.env.STORAGE_ENCRYPTION_KEY || process.env.FILE_ENCRYPTION_KEY || ""
+
+/**
+ * Use Cloudinary when the API secret is configured (production),
+ * fall back to local filesystem for local development.
+ */
+const USE_CLOUDINARY = !!process.env.CLOUDINARY_API_SECRET
 
 const AES_ALGORITHM = "aes-256-gcm"
 const IV_LENGTH = 16
@@ -76,7 +83,7 @@ export function decryptBuffer(buffer: Buffer): Buffer {
     }
 }
 
-// ─── Directory management ───────────────────────────────────────────────────
+// ─── Local filesystem helpers ───────────────────────────────────────────────
 
 function getStoragePath(subpath: string = ""): string {
     if (path.isAbsolute(UPLOAD_DIR)) {
@@ -86,6 +93,7 @@ function getStoragePath(subpath: string = ""): string {
 }
 
 export async function ensureUploadDir(): Promise<void> {
+    if (USE_CLOUDINARY) return // No local dirs needed
     try {
         await fs.mkdir(getStoragePath(), { recursive: true })
         await fs.mkdir(getStoragePath("images"), { recursive: true })
@@ -121,36 +129,58 @@ export async function calculateFileHash(buffer: Buffer): Promise<string> {
 // ─── Write / Read / Delete ──────────────────────────────────────────────────
 
 /**
- * Save file to secure storage (encrypted at rest).
- * Returns the storage reference path.
+ * Determine if a file is a standard image format (uploadable as "image" to Cloudinary).
+ */
+function isImageFile(ref: string): boolean {
+    const ext = ref.split(".").pop()?.toLowerCase() || ""
+    return ["jpg", "jpeg", "png", "bmp", "webp", "tiff", "gif"].includes(ext)
+}
+
+/**
+ * Save file to storage.
+ *
+ * - Production (Cloudinary): uploads the raw buffer to Cloudinary and
+ *   returns a storage reference in the format `cloudinary:<publicId>`.
+ * - Development (local): encrypts and saves to the local filesystem.
  */
 export async function saveToStorage(
     buffer: Buffer,
     storageReference: string,
     subfolder: string = "images"
 ): Promise<string> {
-    await ensureUploadDir()
+    if (USE_CLOUDINARY) {
+        const resourceType = isImageFile(storageReference) ? "image" : "raw"
+        const { publicId } = await cloudinaryUpload(buffer, subfolder, resourceType)
+        // Prefix with "cloudinary:" so readFromStorage knows where to look
+        return `cloudinary:${resourceType}:${publicId}`
+    }
 
+    // Local filesystem fallback
+    await ensureUploadDir()
     const encrypted = encryptBuffer(buffer)
     const filePath = getStoragePath(path.join(subfolder, storageReference))
     await fs.writeFile(filePath, encrypted)
-
     return `${subfolder}/${storageReference}`
 }
 
 /**
- * Read file from storage (decrypted automatically).
+ * Read file from storage (decrypted automatically for local files).
  */
 export async function readFromStorage(storagePath: string): Promise<Buffer> {
-    // CBIS-DDSM dataset paths — resolve via env or relative to project root
+    // ── Cloudinary paths ──
+    if (storagePath.startsWith("cloudinary:")) {
+        const parts = storagePath.replace("cloudinary:", "").split(":")
+        const resourceType = (parts[0] as "image" | "raw") || "image"
+        const publicId = parts.slice(1).join(":")
+        return cloudinaryDownload(publicId, resourceType)
+    }
+
+    // ── CBIS-DDSM dataset paths ──
     if (storagePath.startsWith("CBIS-DDSM")) {
-        const projectRoot = process.cwd() + path.sep + "..";
+        const projectRoot = process.cwd() + path.sep + ".."
         const searchPaths = [
-            // 1. Explicit env var
             CBIS_DDSM_PATH ? path.join(CBIS_DDSM_PATH, storagePath.replace(/^CBIS-DDSM\/?/, "")) : "",
-            // 2. Relative to project root (one level up from cwd) - hidden from @vercel/nft
             path.join(projectRoot, storagePath),
-            // 3. Relative to cwd - hidden from @vercel/nft to prevent over-bundling 
             process.cwd() + path.sep + storagePath,
         ].filter(Boolean)
 
@@ -164,6 +194,7 @@ export async function readFromStorage(storagePath: string): Promise<Buffer> {
         throw new Error(`CBIS-DDSM file not found: ${storagePath}. Set CBIS_DDSM_PATH env var.`)
     }
 
+    // ── Local filesystem ──
     const filePath = getStoragePath(storagePath)
     const raw = await fs.readFile(filePath)
     return decryptBuffer(raw)
@@ -173,18 +204,50 @@ export async function readFromStorage(storagePath: string): Promise<Buffer> {
  * Delete file from storage.
  */
 export async function deleteFromStorage(storagePath: string): Promise<void> {
+    if (storagePath.startsWith("cloudinary:")) {
+        const parts = storagePath.replace("cloudinary:", "").split(":")
+        const resourceType = (parts[0] as "image" | "raw") || "image"
+        const publicId = parts.slice(1).join(":")
+        await cloudinaryDelete(publicId, resourceType)
+        return
+    }
+
     const filePath = getStoragePath(storagePath)
     await fs.unlink(filePath)
 }
 
 /**
  * Get file stats.
+ * For Cloudinary files, returns a placeholder since stats aren't locally available.
  */
 export async function getStorageStats(storagePath: string): Promise<{ size: number; created: Date }> {
+    if (storagePath.startsWith("cloudinary:")) {
+        // Cloudinary doesn't expose simple stat info via the URL approach;
+        // return a reasonable placeholder.
+        return { size: 0, created: new Date() }
+    }
+
     const filePath = getStoragePath(storagePath)
     const stats = await fs.stat(filePath)
     return {
         size: stats.size,
         created: stats.birthtime,
     }
+}
+
+/**
+ * Get a public URL for a stored image.
+ * For Cloudinary images, returns the Cloudinary CDN URL.
+ * For local images, returns the API route path.
+ */
+export function getImageUrl(storagePath: string): string {
+    if (storagePath.startsWith("cloudinary:")) {
+        const parts = storagePath.replace("cloudinary:", "").split(":")
+        const resourceType = parts[0] || "image"
+        const publicId = parts.slice(1).join(":")
+        const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "diwthhhml"
+        return `https://res.cloudinary.com/${cloudName}/${resourceType}/upload/${publicId}`
+    }
+    // Local — serve through API
+    return `/api/images/${encodeURIComponent(storagePath)}`
 }

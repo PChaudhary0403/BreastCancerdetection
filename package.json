@@ -22,6 +22,7 @@
     "@types/nodemailer": "^8.0.0",
     "@types/sharp": "^0.31.1",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.10.0",
     "clsx": "^2.1.1",
     "dicom-parser": "^1.8.21",
     "ioredis": "^5.10.1",
