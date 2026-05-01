@@ -180,12 +180,12 @@ export default function UploadPage() {
         setFiles(prev => prev.map(f => ({ ...f, status: "uploading" as const, progress: 0 })))
 
         try {
-            // Step 1: Get a signed upload token from our API (tiny JSON request)
+            // Step 1: Get cloud config from our API (tiny JSON, ~100 bytes)
             const signRes = await fetch("/api/cloudinary-sign", { method: "POST" })
             if (!signRes.ok) {
                 throw new Error("Failed to get upload authorization")
             }
-            const { signature, timestamp, folder, cloudName, apiKey } = await signRes.json()
+            const { cloudName, uploadPreset } = await signRes.json()
 
             // Step 2: Upload each file DIRECTLY to Cloudinary (bypasses Vercel completely)
             const uploadedImages = []
@@ -195,55 +195,35 @@ export default function UploadPage() {
                 try {
                     const cloudinaryForm = new FormData()
                     cloudinaryForm.append("file", f.file)
-                    cloudinaryForm.append("signature", signature)
-                    cloudinaryForm.append("timestamp", String(timestamp))
-                    cloudinaryForm.append("folder", folder)
-                    cloudinaryForm.append("api_key", apiKey)
+                    cloudinaryForm.append("upload_preset", uploadPreset)
 
+                    // Use auto/upload — Cloudinary auto-detects the resource type
                     const cloudRes = await fetch(
-                        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+                        `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
                         { method: "POST", body: cloudinaryForm }
                     )
 
                     if (!cloudRes.ok) {
-                        // Try as raw upload for DICOM files
-                        const rawForm = new FormData()
-                        rawForm.append("file", f.file)
-                        rawForm.append("signature", signature)
-                        rawForm.append("timestamp", String(timestamp))
-                        rawForm.append("folder", folder)
-                        rawForm.append("api_key", apiKey)
-
-                        const rawRes = await fetch(
-                            `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`,
-                            { method: "POST", body: rawForm }
-                        )
-
-                        if (!rawRes.ok) throw new Error("Upload failed")
-                        const rawResult = await rawRes.json()
-                        uploadedImages.push({
-                            publicId: rawResult.public_id,
-                            url: rawResult.secure_url,
-                            originalFilename: f.file.name,
-                            format: rawResult.format || "dcm",
-                            bytes: rawResult.bytes,
-                        })
-                    } else {
-                        const cloudResult = await cloudRes.json()
-                        uploadedImages.push({
-                            publicId: cloudResult.public_id,
-                            url: cloudResult.secure_url,
-                            originalFilename: f.file.name,
-                            format: cloudResult.format || "jpg",
-                            bytes: cloudResult.bytes,
-                        })
+                        const errBody = await cloudRes.json().catch(() => ({}))
+                        console.error("Cloudinary error:", errBody)
+                        throw new Error(errBody?.error?.message || "Upload to cloud storage failed")
                     }
+
+                    const cloudResult = await cloudRes.json()
+                    uploadedImages.push({
+                        publicId: cloudResult.public_id,
+                        url: cloudResult.secure_url,
+                        originalFilename: f.file.name,
+                        format: cloudResult.format || "jpg",
+                        bytes: cloudResult.bytes,
+                    })
 
                     // Update individual file progress
                     setFiles(prev => prev.map((pf, idx) =>
                         idx === i ? { ...pf, progress: 100, status: "success" as const } : pf
                     ))
                 } catch (fileErr) {
+                    console.error(`Upload failed for ${f.file.name}:`, fileErr)
                     setFiles(prev => prev.map((pf, idx) =>
                         idx === i ? { ...pf, status: "error" as const, error: "Upload failed" } : pf
                     ))

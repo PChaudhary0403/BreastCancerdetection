@@ -10,9 +10,12 @@ cloudinary.config({
     secure: true,
 })
 
+const PRESET_NAME = "breastscreen_upload"
+
 /**
- * Generate a signed upload token so the browser can upload
- * directly to Cloudinary — bypassing Vercel's 4.5MB body limit entirely.
+ * Ensures an unsigned upload preset exists, then returns
+ * the cloud name and preset name so the browser can upload
+ * directly to Cloudinary without any signature.
  */
 export async function POST() {
     try {
@@ -21,24 +24,25 @@ export async function POST() {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
-        const timestamp = Math.round(Date.now() / 1000)
-        const folder = "breastscreen/mammograms"
-
-        // Generate signature for direct client-side upload
-        const signature = cloudinary.utils.api_sign_request(
-            { timestamp, folder },
-            process.env.CLOUDINARY_API_SECRET || ""
-        )
+        // Try to get the preset; create it if it doesn't exist
+        try {
+            await cloudinary.api.upload_preset(PRESET_NAME)
+        } catch {
+            // Preset doesn't exist — create it
+            await cloudinary.api.create_upload_preset({
+                name: PRESET_NAME,
+                unsigned: true,
+                folder: "breastscreen/mammograms",
+            })
+            console.log("Created Cloudinary unsigned upload preset:", PRESET_NAME)
+        }
 
         return NextResponse.json({
-            signature,
-            timestamp,
-            folder,
             cloudName: process.env.CLOUDINARY_CLOUD_NAME || "diwthhhml",
-            apiKey: process.env.CLOUDINARY_API_KEY || "625464724691951",
+            uploadPreset: PRESET_NAME,
         })
     } catch (error) {
         console.error("Cloudinary sign error:", error)
-        return NextResponse.json({ error: "Failed to generate upload signature" }, { status: 500 })
+        return NextResponse.json({ error: "Failed to prepare upload" }, { status: 500 })
     }
 }
