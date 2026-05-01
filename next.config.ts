@@ -11,7 +11,14 @@ const nextConfig: NextConfig = {
     "socket.io-client",
     "nodemailer",
     "ioredis",
+    "cloudinary",
   ],
+  // Increase the body size limit for API routes (mammogram uploads)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "4.5mb",
+    },
+  },
 };
 
 export default nextConfig;

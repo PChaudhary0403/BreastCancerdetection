@@ -17,7 +17,7 @@ interface UploadedFile {
     progress?: number
 }
 
-const MAX_UPLOAD_SIZE = 4 * 1024 * 1024 // 4MB — stay under Vercel's 4.5MB limit
+const MAX_UPLOAD_SIZE = 3 * 1024 * 1024 // 3MB — safe headroom under Vercel's 4.5MB limit
 
 /**
  * Compress an image file client-side using a canvas.
@@ -42,10 +42,8 @@ async function compressImage(file: File): Promise<File> {
             URL.revokeObjectURL(url)
             const canvas = document.createElement("canvas")
 
-            // Scale down to fit under ~4MB
-            // Start with original dimensions, reduce until small enough
-            let quality = 0.85
-            const scaleFactor = Math.min(1, Math.sqrt(MAX_UPLOAD_SIZE / file.size))
+            // Scale down aggressively to fit under 3MB
+            const scaleFactor = Math.min(1, Math.sqrt(MAX_UPLOAD_SIZE / file.size) * 0.9)
             canvas.width = Math.round(img.width * scaleFactor)
             canvas.height = Math.round(img.height * scaleFactor)
 
@@ -62,7 +60,7 @@ async function compressImage(file: File): Promise<File> {
                     }
                 },
                 "image/jpeg",
-                quality
+                0.7
             )
         }
         img.onerror = () => {

@@ -14,9 +14,12 @@ import {
     extractLaterality,
     sanitizeFilename
 } from "@/lib/dicom"
+// Next.js route segment config — increase body parser limit for image uploads
+export const maxDuration = 30 // seconds (Vercel hobby = 10s, Pro = 60s)
+export const dynamic = "force-dynamic"
 
-// Maximum file size: 50MB
-const MAX_FILE_SIZE = 50 * 1024 * 1024
+// Maximum file size: 4MB (Vercel serverless body limit is 4.5MB)
+const MAX_FILE_SIZE = 4 * 1024 * 1024
 
 export async function POST(request: NextRequest) {
     try {
