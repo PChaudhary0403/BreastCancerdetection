@@ -30,9 +30,21 @@ export function useSocket({ userId, role, entityId }: UseSocketOptions) {
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     useEffect(() => {
+        // On Vercel (serverless), WebSockets are not supported.
+        // Detect production environment and skip socket connection entirely.
+        const isServerless = typeof window !== "undefined" && 
+            window.location.hostname.includes("vercel.app")
+
+        if (isServerless) {
+            console.info("[Chat] WebSocket unavailable on serverless — real-time chat disabled")
+            return
+        }
+
         const socket = io({
             path: "/api/socket",
             transports: ["websocket", "polling"],
+            reconnectionAttempts: 3,
+            timeout: 5000,
         })
 
         socketRef.current = socket

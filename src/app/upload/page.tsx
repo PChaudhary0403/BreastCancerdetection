@@ -17,6 +17,62 @@ interface UploadedFile {
     progress?: number
 }
 
+const MAX_UPLOAD_SIZE = 4 * 1024 * 1024 // 4MB — stay under Vercel's 4.5MB limit
+
+/**
+ * Compress an image file client-side using a canvas.
+ * DICOM files are returned as-is (they need special handling server-side).
+ * For JPEG/PNG, resize to a max dimension and re-encode as JPEG.
+ */
+async function compressImage(file: File): Promise<File> {
+    const ext = file.name.split(".").pop()?.toLowerCase() || ""
+    // Skip compression for DICOM files
+    if (["dcm", "dicom"].includes(ext) || file.type === "application/dicom") {
+        return file
+    }
+    // If file is already small enough, skip
+    if (file.size <= MAX_UPLOAD_SIZE) {
+        return file
+    }
+
+    return new Promise((resolve) => {
+        const img = new Image()
+        const url = URL.createObjectURL(file)
+        img.onload = () => {
+            URL.revokeObjectURL(url)
+            const canvas = document.createElement("canvas")
+
+            // Scale down to fit under ~4MB
+            // Start with original dimensions, reduce until small enough
+            let quality = 0.85
+            const scaleFactor = Math.min(1, Math.sqrt(MAX_UPLOAD_SIZE / file.size))
+            canvas.width = Math.round(img.width * scaleFactor)
+            canvas.height = Math.round(img.height * scaleFactor)
+
+            const ctx = canvas.getContext("2d")!
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+            canvas.toBlob(
+                (blob) => {
+                    if (blob) {
+                        const compressedName = file.name.replace(/\.\w+$/, ".jpg")
+                        resolve(new File([blob], compressedName, { type: "image/jpeg" }))
+                    } else {
+                        resolve(file) // fallback to original
+                    }
+                },
+                "image/jpeg",
+                quality
+            )
+        }
+        img.onerror = () => {
+            URL.revokeObjectURL(url)
+            resolve(file) // fallback
+        }
+        img.src = url
+    })
+}
+
 function UploadProgress({ progress }: { progress: number }) {
     return (
         <div className="progress-bar mt-1.5">
@@ -137,7 +193,11 @@ export default function UploadPage() {
 
         try {
             const formData = new FormData()
-            files.forEach(f => formData.append("images", f.file))
+            // Compress images to stay under Vercel's 4.5MB limit
+            for (const f of files) {
+                const compressed = await compressImage(f.file)
+                formData.append("images", compressed)
+            }
 
             const response = await fetch("/api/cases/upload", {
                 method: "POST",
@@ -284,7 +344,7 @@ export default function UploadPage() {
                                         </li>
                                         <li className="flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                                            Maximum file size: 50MB per image
+                                            Large images are automatically compressed before upload
                                         </li>
                                         <li className="flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
