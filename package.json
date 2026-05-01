@@ -6,7 +6,7 @@
     "dev": "tsx server.ts",
     "dev:next": "next dev",
     "postinstall": "prisma generate",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma db push --accept-data-loss && next build",
     "start": "tsx server.ts",
     "lint": "eslint",
     "test": "vitest run",
