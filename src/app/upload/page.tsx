@@ -176,59 +176,114 @@ export default function UploadPage() {
         setIsUploading(true)
         setUploadResult(null)
 
-        // Update all files to uploading status with simulated progress
+        // Update all files to uploading status
         setFiles(prev => prev.map(f => ({ ...f, status: "uploading" as const, progress: 0 })))
 
-        // Simulate progress
-        const progressInterval = setInterval(() => {
-            setFiles(prev => prev.map(f => {
-                if (f.status === "uploading" && (f.progress || 0) < 90) {
-                    return { ...f, progress: (f.progress || 0) + Math.random() * 15 }
-                }
-                return f
-            }))
-        }, 300)
-
         try {
-            const formData = new FormData()
-            // Compress images to stay under Vercel's 4.5MB limit
-            for (const f of files) {
-                const compressed = await compressImage(f.file)
-                formData.append("images", compressed)
+            // Step 1: Get a signed upload token from our API (tiny JSON request)
+            const signRes = await fetch("/api/cloudinary-sign", { method: "POST" })
+            if (!signRes.ok) {
+                throw new Error("Failed to get upload authorization")
+            }
+            const { signature, timestamp, folder, cloudName, apiKey } = await signRes.json()
+
+            // Step 2: Upload each file DIRECTLY to Cloudinary (bypasses Vercel completely)
+            const uploadedImages = []
+
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i]
+                try {
+                    const cloudinaryForm = new FormData()
+                    cloudinaryForm.append("file", f.file)
+                    cloudinaryForm.append("signature", signature)
+                    cloudinaryForm.append("timestamp", String(timestamp))
+                    cloudinaryForm.append("folder", folder)
+                    cloudinaryForm.append("api_key", apiKey)
+
+                    const cloudRes = await fetch(
+                        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+                        { method: "POST", body: cloudinaryForm }
+                    )
+
+                    if (!cloudRes.ok) {
+                        // Try as raw upload for DICOM files
+                        const rawForm = new FormData()
+                        rawForm.append("file", f.file)
+                        rawForm.append("signature", signature)
+                        rawForm.append("timestamp", String(timestamp))
+                        rawForm.append("folder", folder)
+                        rawForm.append("api_key", apiKey)
+
+                        const rawRes = await fetch(
+                            `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`,
+                            { method: "POST", body: rawForm }
+                        )
+
+                        if (!rawRes.ok) throw new Error("Upload failed")
+                        const rawResult = await rawRes.json()
+                        uploadedImages.push({
+                            publicId: rawResult.public_id,
+                            url: rawResult.secure_url,
+                            originalFilename: f.file.name,
+                            format: rawResult.format || "dcm",
+                            bytes: rawResult.bytes,
+                        })
+                    } else {
+                        const cloudResult = await cloudRes.json()
+                        uploadedImages.push({
+                            publicId: cloudResult.public_id,
+                            url: cloudResult.secure_url,
+                            originalFilename: f.file.name,
+                            format: cloudResult.format || "jpg",
+                            bytes: cloudResult.bytes,
+                        })
+                    }
+
+                    // Update individual file progress
+                    setFiles(prev => prev.map((pf, idx) =>
+                        idx === i ? { ...pf, progress: 100, status: "success" as const } : pf
+                    ))
+                } catch (fileErr) {
+                    setFiles(prev => prev.map((pf, idx) =>
+                        idx === i ? { ...pf, status: "error" as const, error: "Upload failed" } : pf
+                    ))
+                }
             }
 
-            const response = await fetch("/api/cases/upload", {
+            if (uploadedImages.length === 0) {
+                throw new Error("No images could be uploaded")
+            }
+
+            // Step 3: Save metadata to our database (tiny JSON, no file data)
+            const saveRes = await fetch("/api/cases/save", {
                 method: "POST",
-                body: formData,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ images: uploadedImages }),
             })
 
-            const result = await response.json()
+            const result = await saveRes.json()
 
-            clearInterval(progressInterval)
-
-            if (response.ok) {
+            if (saveRes.ok) {
                 setUploadResult({
                     success: true,
                     caseId: result.caseId,
                     message: result.message,
-                    errors: result.errors,
                 })
                 setFiles(prev => prev.map(f => ({ ...f, status: "success" as const, progress: 100 })))
             } else {
                 setUploadResult({
                     success: false,
-                    message: result.error,
-                    errors: result.details,
+                    message: result.error || "Failed to save case",
                 })
-                setFiles(prev => prev.map(f => ({ ...f, status: "error" as const })))
             }
         } catch (error) {
-            clearInterval(progressInterval)
             setUploadResult({
                 success: false,
-                message: "An unexpected error occurred. Please try again.",
+                message: error instanceof Error ? error.message : "An unexpected error occurred. Please try again.",
             })
-            setFiles(prev => prev.map(f => ({ ...f, status: "error" as const })))
+            setFiles(prev => prev.map(f =>
+                f.status !== "success" ? { ...f, status: "error" as const } : f
+            ))
         } finally {
             setIsUploading(false)
         }
