@@ -78,11 +78,18 @@ export function decryptBuffer(buffer: Buffer): Buffer {
 
 // ─── Directory management ───────────────────────────────────────────────────
 
+function getStoragePath(subpath: string = ""): string {
+    if (path.isAbsolute(UPLOAD_DIR)) {
+        return path.join(UPLOAD_DIR, subpath)
+    }
+    return path.join(process.cwd(), UPLOAD_DIR, subpath)
+}
+
 export async function ensureUploadDir(): Promise<void> {
     try {
-        await fs.mkdir(path.join(process.cwd(), UPLOAD_DIR), { recursive: true })
-        await fs.mkdir(path.join(process.cwd(), UPLOAD_DIR, "images"), { recursive: true })
-        await fs.mkdir(path.join(process.cwd(), UPLOAD_DIR, "attention-maps"), { recursive: true })
+        await fs.mkdir(getStoragePath(), { recursive: true })
+        await fs.mkdir(getStoragePath("images"), { recursive: true })
+        await fs.mkdir(getStoragePath("attention-maps"), { recursive: true })
     } catch (error) {
         console.error("Failed to create upload directories:", error)
     }
@@ -125,7 +132,7 @@ export async function saveToStorage(
     await ensureUploadDir()
 
     const encrypted = encryptBuffer(buffer)
-    const filePath = path.join(process.cwd(), UPLOAD_DIR, subfolder, storageReference)
+    const filePath = getStoragePath(path.join(subfolder, storageReference))
     await fs.writeFile(filePath, encrypted)
 
     return `${subfolder}/${storageReference}`
@@ -157,7 +164,7 @@ export async function readFromStorage(storagePath: string): Promise<Buffer> {
         throw new Error(`CBIS-DDSM file not found: ${storagePath}. Set CBIS_DDSM_PATH env var.`)
     }
 
-    const filePath = path.join(process.cwd(), UPLOAD_DIR, storagePath)
+    const filePath = getStoragePath(storagePath)
     const raw = await fs.readFile(filePath)
     return decryptBuffer(raw)
 }
@@ -166,7 +173,7 @@ export async function readFromStorage(storagePath: string): Promise<Buffer> {
  * Delete file from storage.
  */
 export async function deleteFromStorage(storagePath: string): Promise<void> {
-    const filePath = path.join(process.cwd(), UPLOAD_DIR, storagePath)
+    const filePath = getStoragePath(storagePath)
     await fs.unlink(filePath)
 }
 
@@ -174,7 +181,7 @@ export async function deleteFromStorage(storagePath: string): Promise<void> {
  * Get file stats.
  */
 export async function getStorageStats(storagePath: string): Promise<{ size: number; created: Date }> {
-    const filePath = path.join(process.cwd(), UPLOAD_DIR, storagePath)
+    const filePath = getStoragePath(storagePath)
     const stats = await fs.stat(filePath)
     return {
         size: stats.size,
